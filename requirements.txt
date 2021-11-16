@@ -1,0 +1,7 @@
+pandas 
+numpy
+jupyter
+torch
+torchvision
+einsum
+

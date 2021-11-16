@@ -1,0 +1,6 @@
+1. make requirements file to keep track of dependencies
+
+2. make virtual environment: python3 -m venv . (creates bin, include, lib)
+
+3. activate venv: source bin/activate
+
