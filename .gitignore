@@ -5,6 +5,36 @@ etc/
 share/
 datasets/zips/
 models/
+aws/
+bash_logout/
+bash_profile/
+bashrc/
+cache/
+conda/
+condarc
+config/
+dl_binaries/
+gitconfig
+ipython/
+jupyter/
+keras/
+local/
+npm/
+rnd
+sparkmagic
+ssh/
+theano/
+LICENSE/
+Nvidia_Cloud_EULA.pdf/
+README/
+SageMaker/
+anaconda3/
+examples/
+sample-notebooks/
+sample-notebooks-1637317066/
+src/
+tools/
+tutorials/
 
 
 # Byte-compiled / optimized / DLL files
