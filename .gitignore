@@ -2,6 +2,7 @@ bin/
 lib/
 include/
 etc/
+data/
 share/
 datasets/zips/
 models/
