@@ -1,5 +1,6 @@
 import argparse
 import json
+import joblib
 import os
 import pandas as pd
 import torch
@@ -40,12 +41,15 @@ def model_fn(model_dir):
 # Gets training data in batches from the train.csv file
 def _get_train_data_loader(batch_size, training_dir):
     print("Get train data loader.")
+    
+    with open(os.path.join(training_dir, "train_X.z"), 'rb') as f:
+        train_x = joblib.load(f)
 
-    train_x = pd.read_csv(os.path.join(training_dir, "train_X.csv"), header=None, names=None)
-    train_y = pd.read_csv(os.path.join(training_dir, "train_Y.csv"), header=None, names=None)
+    with open(os.path.join(training_dir, "train_Y.z"), 'rb') as f:
+        train_y = joblib.load(f)
 
-    train_y = torch.from_numpy(train_x.values).float().squeeze()
-    train_x = torch.from_numpy(train_y.values).float()
+    train_y = torch.from_numpy(train_x).float().squeeze()
+    train_x = torch.from_numpy(train_y).float()
 
     train_ds = torch.utils.data.TensorDataset(train_x, train_y)
 
@@ -154,8 +158,8 @@ if __name__ == '__main__':
     ## TODO:  Build the model by passing in the input params
     # To get params from the parser, call args.argument_name, ex. args.epochs or ards.hidden_dim
     # Don't forget to move your model .to(device) to move to GPU , if appropriate
-    model = VisionTransformer(args.image_size=256, args.patch_size=32, args.num_classes=13, args.channels=1,
-                               args.k=64, args.depth=3, args.heads=8, args.mlp_dim=64)
+    model = VisionTransformer(args.image_size, args.patch_size, args.num_classes, args.channels,
+                               args.k, args.depth, args.heads, args.mlp_dim)
 
     ## TODO: Define an optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
@@ -169,9 +173,14 @@ if __name__ == '__main__':
     model_info_path = os.path.join(args.model_dir, 'model_info.pth')
     with open(model_info_path, 'wb') as f:
         model_info = {
-            'input_features': args.input_features,
-            'hidden_dim': None,
-            'output_dim': None,
+            'image_size': args.image_size,
+            'patch_size': args.patch_size,
+            'num_classes': args.num_classes,
+            'channels': args.channels,
+            'k': args.k,
+            'depth': args.depth,
+            'heads': args.heads,
+            'mlp_dim': args.mlp_dim
         }
         torch.save(model_info, f)
         
