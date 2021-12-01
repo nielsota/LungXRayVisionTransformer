@@ -1,35 +1,45 @@
 import argparse
-import json
+import pathlib
 import joblib
+import json
 import os
 import pandas as pd
+
+# torch imports
 import torch
 import torch.optim as optim
 import torch.utils.data
+from torch import nn
 
 # imports the model in model.py by name
 from model import VisionTransformer
+
+# Progress bar
+from tqdm import tqdm
 
 def model_fn(model_dir):
     """Load the PyTorch model from the `model_dir` directory."""
     print("Loading model.")
 
+    MODEL_INFO_PATH = MODEL_DIR / 'model_info.pth'
+    MODEL_PATH = MODEL_DIR / 'model.pth'
+
     # First, load the parameters used to create the model.
     model_info = {}
     model_info_path = os.path.join(model_dir, 'model_info.pth')
-    with open(model_info_path, 'rb') as f:
+    with open(MODEL_INFO_PATH, 'rb') as f:
         model_info = torch.load(f)
 
     print("model_info: {}".format(model_info))
 
     # Determine the device and construct the model.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = VisionTransformer(image_size=256, patch_size=32, num_classes=13, channels=1,
-                               k=64, depth=3, heads=8, mlp_dim=64)
+    model = VisionTransformer(image_size=model_info['image_size'], patch_size=model_info['patch_size'], 
+                              num_classes=model_info['num_classes'], channels=model_info['channels'],
+                               k=model_info['k'], depth=model_info['depth'], 
+                               heads=model_info['heads'], mlp_dim=model_info['mlp_dim'])
 
-    # Load the stored model parameters.
-    model_path = os.path.join(model_dir, 'model.pth')
-    with open(model_path, 'rb') as f:
+    with open(MODEL_PATH, 'rb') as f:
         model.load_state_dict(torch.load(f))
 
     # set to eval mode, could use no_grad
@@ -41,15 +51,15 @@ def model_fn(model_dir):
 # Gets training data in batches from the train.csv file
 def _get_train_data_loader(batch_size, training_dir):
     print("Get train data loader.")
-    
+
     with open(os.path.join(training_dir, "train_X.z"), 'rb') as f:
         train_x = joblib.load(f)
 
     with open(os.path.join(training_dir, "train_Y.z"), 'rb') as f:
         train_y = joblib.load(f)
 
-    train_y = torch.from_numpy(train_x).float().squeeze()
-    train_x = torch.from_numpy(train_y).float()
+    train_y = torch.from_numpy(train_y).float().squeeze()
+    train_x = torch.from_numpy(train_x).float()
 
     train_ds = torch.utils.data.TensorDataset(train_x, train_y)
 
@@ -75,7 +85,7 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
 
         total_loss = 0
 
-        for batch in train_loader:
+        for batch in tqdm(train_loader):
             # get data
             batch_x, batch_y = batch
 
@@ -99,6 +109,15 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
 
 ## TODO: Complete the main code
 if __name__ == '__main__':
+
+    BASE_DIR = pathlib.Path().resolve().parent
+
+    DATA_DIR = BASE_DIR / 'data'
+    MODEL_DIR = BASE_DIR / 'models'
+
+    EXPORTS_DIR = DATA_DIR / 'exports'
+    XRAY_LUNG_CLF_DIR = DATA_DIR / 'xray_lung_clf'
+    EXPORTS_LUNGCLF_DIR = EXPORTS_DIR / 'xray_lung_clf'
     
     # All of the model parameters and training parameters are sent as arguments
     # when this script is executed, during a training job
@@ -108,9 +127,13 @@ if __name__ == '__main__':
 
     # SageMaker parameters, like the directories for training data and saving models; set automatically
     # Do not need to change
-    parser.add_argument('--output-data-dir', type=str, default=os.environ['SM_OUTPUT_DATA_DIR'])
-    parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
-    parser.add_argument('--data-dir', type=str, default=os.environ['SM_CHANNEL_TRAIN'])
+    #parser.add_argument('--output-data-dir', type=str, default=os.environ['SM_OUTPUT_DATA_DIR'])
+    #parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
+    #parser.add_argument('--data-dir', type=str, default=os.environ['SM_CHANNEL_TRAIN'])
+
+    parser.add_argument('--output-data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
+    parser.add_argument('--model-dir', type=str, default=MODEL_DIR)
+    parser.add_argument('--data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
     
     # Training Parameters, given
     parser.add_argument('--batch-size', type=int, default=10, metavar='N',
@@ -137,10 +160,6 @@ if __name__ == '__main__':
     parser.add_argument('--mlp_dim', type=int, default=64, metavar='N',
                         help='mlp_dim (default: 64)')
     
-    ## TODO: Add args for the three model parameters: input_features, hidden_dim, output_dim
-    # Model Parameters
-    
-    
     # args holds all passed-in arguments
     args = parser.parse_args()
 
@@ -151,27 +170,23 @@ if __name__ == '__main__':
 
     # Load the training data.
     train_loader = _get_train_data_loader(args.batch_size, args.data_dir)
-
-
-    ## --- Your code here --- ##
     
-    ## TODO:  Build the model by passing in the input params
+    # Build the model by passing in the input params
     # To get params from the parser, call args.argument_name, ex. args.epochs or ards.hidden_dim
     # Don't forget to move your model .to(device) to move to GPU , if appropriate
-    model = VisionTransformer(args.image_size, args.patch_size, args.num_classes, args.channels,
-                               args.k, args.depth, args.heads, args.mlp_dim)
+    model = VisionTransformer(image_size = args.image_size, patch_size = args.patch_size, num_classes = args.num_classes, 
+                              channels = args.channels, k = args.k, depth = args.depth, heads = args.heads, mlp_dim = args.mlp_dim)
 
-    ## TODO: Define an optimizer and loss function for training
+    ## Define optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss
 
     # Trains the model (given line of code, which calls the above training function)
     train(model, train_loader, args.epochs, criterion, optimizer, device)
 
-    ## TODO: complete in the model_info by adding three argument names, the first is given
     # Keep the keys of this dictionary as they are 
-    model_info_path = os.path.join(args.model_dir, 'model_info.pth')
-    with open(model_info_path, 'wb') as f:
+    MODEL_INFO_PATH = MODEL_DIR / 'model_info.pth'
+    with open(MODEL_INFO_PATH, 'wb') as f:
         model_info = {
             'image_size': args.image_size,
             'patch_size': args.patch_size,
@@ -183,12 +198,11 @@ if __name__ == '__main__':
             'mlp_dim': args.mlp_dim
         }
         torch.save(model_info, f)
-        
     ## --- End of your code  --- ##
     
-
 	# Save the model parameters
-    model_path = os.path.join(args.model_dir, 'model.pth')
-    with open(model_path, 'wb') as f:
+    MODEL_PATH = MODEL_DIR / 'model.pth'
+    with open(MODEL_PATH, 'wb') as f:
         torch.save(model.cpu().state_dict(), f)
 
+    model_fn(MODEL_DIR)

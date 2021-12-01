@@ -138,21 +138,21 @@ class VisionTransformer(nn.Module):
         p = self.patch_size
 
         x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=p, p2=p)
-        print(x.shape)
+        #print(x.shape)
         x = self.patch_to_embedding(x)
-        print(x.shape)
+        #print(x.shape)
 
         cls_tokens = self.cls_token.expand(img.shape[0], -1, -1)
-        print(x.shape)
+        #print(x.shape)
         x = torch.cat((cls_tokens, x), dim=1)
-        print(x.shape)
+        #print(x.shape)
         x += self.pos_embedding
-        print(x.shape)
+        #print(x.shape)
         x = self.transformer(x)
-        print(x.shape)
+        #print(x.shape)
 
         x = self.to_cls_token(x[:, 0])
-        print(x.shape)
+        #print(x.shape)
         return self.mlp_head(x)
 
 ################################################################################
