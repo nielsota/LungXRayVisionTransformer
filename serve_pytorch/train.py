@@ -230,5 +230,5 @@ if __name__ == '__main__':
     with open(MODEL_PATH, 'wb') as f:
         torch.save(model.cpu().state_dict(), f)
 
-    # Test model loading function
+    # Test model loading functiogn
     model_fn(MODEL_DIR)
