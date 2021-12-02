@@ -67,11 +67,11 @@ class TransformerBlock(nn.Module):
                                  nn.Linear(4 * k, k))
 
     def forward(self, x):
-        # Part 1; self attention and normalize
+        # Part 1; self attention and normalize along feature direction (each sample own mean and var)
         out = self.attention(x)
         x = self.norm1(out + x)
 
-        # Part 2; MLP and normalize
+        # Part 2; MLP and normalize along feature direction (each sample own mean and var)
         out = self.mlp(x)
         x = self.norm2(out + x)
 
@@ -98,6 +98,13 @@ class Transformer(nn.Module):
         # return F.log_softmax(x, dim=1)
         return x
 
+class rearrange_layer(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, img, p):
+        return rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=p, p2=p)
+
 
 class VisionTransformer(nn.Module):
     """
@@ -122,6 +129,7 @@ class VisionTransformer(nn.Module):
         patch_dim = channels * patch_size ** 2
 
         self.patch_size = patch_size
+        self.rearrange_layer = rearrange_layer()
         self.patch_to_embedding = nn.Linear(patch_dim, k)
         self.cls_token = nn.Parameter(torch.randn(1, 1, k))
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, k))
@@ -137,7 +145,7 @@ class VisionTransformer(nn.Module):
     def forward(self, img, mask=None):
         p = self.patch_size
 
-        x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=p, p2=p)
+        x = self.rearrange_layer(img, p)
         #print(x.shape)
         x = self.patch_to_embedding(x)
         #print(x.shape)

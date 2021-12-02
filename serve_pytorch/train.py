@@ -17,6 +17,9 @@ from model import VisionTransformer
 # Progress bar
 from tqdm import tqdm
 
+# Monitor training
+from torch.utils.tensorboard import SummaryWriter
+
 def model_fn(model_dir):
     """Load the PyTorch model from the `model_dir` directory."""
     print("Loading model.")
@@ -63,8 +66,7 @@ def _get_train_data_loader(batch_size, training_dir):
 
     train_ds = torch.utils.data.TensorDataset(train_x, train_y)
 
-    return torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-
+    return torch.utils.data.DataLoader(train_ds, batch_size=batch_size), len(train_x)
 
 # Provided training function
 def train(model, train_loader, epochs, criterion, optimizer, device):
@@ -83,9 +85,11 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
     for epoch in range(1, epochs + 1):
         model.train() # Make sure that the model is in training mode.
 
-        total_loss = 0
+        epoch_loss = 0
+        batch_loss = 0
 
-        for batch in tqdm(train_loader):
+        for i, batch in tqdm(enumerate(train_loader)):
+
             # get data
             batch_x, batch_y = batch
 
@@ -102,18 +106,28 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
             loss.backward()
             optimizer.step()
             
-            total_loss += loss.data.item()
+            # get losses
+            batch_loss += loss.data.item()
+            epoch_loss += loss.data.item()
 
-        print("Epoch: {}, Loss: {}".format(epoch, total_loss / len(train_loader)))
+            # add batch loss to tensorboard
+            if i % 100 == 0:
+                writer.add_scalar('batch loss', batch_loss / 100, epoch * len(train_loader) + i)
+                batch_loss = 0
+
+        print("Epoch: {}, Loss: {}".format(epoch, epoch_loss / len(train_loader)))
+        writer.add_scalar('epoch loss', epoch_loss / len(train_loader), epoch)
 
 
-## TODO: Complete the main code
 if __name__ == '__main__':
 
     BASE_DIR = pathlib.Path().resolve().parent
 
     DATA_DIR = BASE_DIR / 'data'
     MODEL_DIR = BASE_DIR / 'models'
+    RUNS_DIR = BASE_DIR / 'runs'
+
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
     EXPORTS_DIR = DATA_DIR / 'exports'
     XRAY_LUNG_CLF_DIR = DATA_DIR / 'xray_lung_clf'
@@ -138,7 +152,7 @@ if __name__ == '__main__':
     # Training Parameters, given
     parser.add_argument('--batch-size', type=int, default=10, metavar='N',
                         help='input batch size for training (default: 10)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=50, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
@@ -168,21 +182,33 @@ if __name__ == '__main__':
 
     torch.manual_seed(args.seed)
 
+    # Use tensorboard
+    print('creating tensorboard')
+    global writer
+    writer = SummaryWriter(RUNS_DIR)
+
     # Load the training data.
-    train_loader = _get_train_data_loader(args.batch_size, args.data_dir)
-    
+    train_loader, num_samples = _get_train_data_loader(args.batch_size, args.data_dir)
+    train_loader = _get_train_and_validation_loader(train_loader, num_samples=num_samples, fraction=0.1)
+
     # Build the model by passing in the input params
     # To get params from the parser, call args.argument_name, ex. args.epochs or ards.hidden_dim
     # Don't forget to move your model .to(device) to move to GPU , if appropriate
     model = VisionTransformer(image_size = args.image_size, patch_size = args.patch_size, num_classes = args.num_classes, 
                               channels = args.channels, k = args.k, depth = args.depth, heads = args.heads, mlp_dim = args.mlp_dim)
 
+    # Get a batch for tensorboard
+    batch_X, batch_Y = next(iter(train_loader))
+    print(f'X batch has shape {batch_X.shape}')
+    writer.add_graph(model, batch_X)
+
     ## Define optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
-    criterion = nn.BCEWithLogitsLoss
+    criterion = nn.BCEWithLogitsLoss()
 
     # Trains the model (given line of code, which calls the above training function)
-    train(model, train_loader, args.epochs, criterion, optimizer, device)
+    #train(model, train_loader, args.epochs, criterion, optimizer, device)
+    writer.close()
 
     # Keep the keys of this dictionary as they are 
     MODEL_INFO_PATH = MODEL_DIR / 'model_info.pth'
@@ -198,11 +224,11 @@ if __name__ == '__main__':
             'mlp_dim': args.mlp_dim
         }
         torch.save(model_info, f)
-    ## --- End of your code  --- ##
     
 	# Save the model parameters
     MODEL_PATH = MODEL_DIR / 'model.pth'
     with open(MODEL_PATH, 'wb') as f:
         torch.save(model.cpu().state_dict(), f)
 
+    # Test model loading function
     model_fn(MODEL_DIR)
