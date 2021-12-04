@@ -1,11 +1,15 @@
 pandas 
 numpy
 jupyter
+matplotlib
 torch
 torchvision
-einsum
+einops
 joblib
 pickle
+tqdm
+sklearn
 argparse
 os
+sagemaker
 

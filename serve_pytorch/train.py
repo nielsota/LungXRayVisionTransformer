@@ -10,6 +10,7 @@ import torch
 import torch.optim as optim
 import torch.utils.data
 from torch import nn
+from torch.utils.data.dataset import random_split
 
 # imports the model in model.py by name
 from model import VisionTransformer
@@ -19,6 +20,7 @@ from tqdm import tqdm
 
 # Monitor training
 from torch.utils.tensorboard import SummaryWriter
+
 
 def model_fn(model_dir):
     """Load the PyTorch model from the `model_dir` directory."""
@@ -67,6 +69,42 @@ def _get_train_data_loader(batch_size, training_dir):
     train_ds = torch.utils.data.TensorDataset(train_x, train_y)
 
     return torch.utils.data.DataLoader(train_ds, batch_size=batch_size), len(train_x)
+
+    # Gets training data in batches from the train.csv file
+def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
+    print("Get train data loader.")
+
+    with open(os.path.join(training_dir, "train_X.z"), 'rb') as f:
+        train_x = joblib.load(f)
+
+    with open(os.path.join(training_dir, "train_Y.z"), 'rb') as f:
+        train_y = joblib.load(f)
+
+    train_y = torch.from_numpy(train_y).float().squeeze()
+    train_x = torch.from_numpy(train_x).float()
+
+    # find num elements in training and validation
+    num_samples = train_x.shape[0]
+    num_train = int(num_samples * split)
+    num_valid = num_samples - num_train
+
+    assert num_valid + num_train == num_samples
+
+    # load all data and split into training and validation
+    train_ds = torch.utils.data.TensorDataset(train_x, train_y)
+    train_ds, valid_ds = random_split(train_ds, lengths=[num_train, num_valid])
+
+    # make dataloaders
+    train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
+    valid_dataloader =torch.utils.data.DataLoader(valid_ds, batch_size=batch_size)
+    
+    batch_X, batch_Y = next(iter(train_dataloader))
+    print(f'X train batch has shape {batch_X.shape}')
+
+    batch_X, batch_Y = next(iter(valid_dataloader))
+    print(f'X valid batch has shape {batch_X.shape}')
+
+    return train_dataloader, valid_dataloader
 
 # Provided training function
 def train(model, train_loader, epochs, criterion, optimizer, device):
@@ -121,7 +159,10 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
 
 if __name__ == '__main__':
 
-    BASE_DIR = pathlib.Path().resolve().parent
+    #BASE_DIR = pathlib.Path().resolve().parent
+    BASE_DIR = pathlib.Path().resolve()
+
+    print(BASE_DIR)
 
     DATA_DIR = BASE_DIR / 'data'
     MODEL_DIR = BASE_DIR / 'models'
@@ -150,7 +191,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
     
     # Training Parameters, given
-    parser.add_argument('--batch-size', type=int, default=10, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 10)')
     parser.add_argument('--epochs', type=int, default=50, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -173,6 +214,8 @@ if __name__ == '__main__':
                         help='heads (default: 8)')
     parser.add_argument('--mlp_dim', type=int, default=64, metavar='N',
                         help='mlp_dim (default: 64)')
+    parser.add_argument('--valid', type=float, default=0.1, metavar='N',
+                        help='fraction of training for validation (default: 10%)')
     
     # args holds all passed-in arguments
     args = parser.parse_args()
@@ -188,8 +231,8 @@ if __name__ == '__main__':
     writer = SummaryWriter(RUNS_DIR)
 
     # Load the training data.
-    train_loader, num_samples = _get_train_data_loader(args.batch_size, args.data_dir)
-    train_loader = _get_train_and_validation_loader(train_loader, num_samples=num_samples, fraction=0.1)
+    train_loader = _get_train_data_loader(args.batch_size, args.data_dir)
+    train_loader, valid_loader = _get_train_and_validation_loader(args.batch_size, args.data_dir, split = 0.1)
 
     # Build the model by passing in the input params
     # To get params from the parser, call args.argument_name, ex. args.epochs or ards.hidden_dim
