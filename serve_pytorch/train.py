@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import pathlib
 import joblib
 import json
@@ -72,7 +73,7 @@ def _get_train_data_loader(batch_size, training_dir):
 
     # Gets training data in batches from the train.csv file
 def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
-    print("Get train data loader.")
+    print("Get train data and valid data loaders.")
 
     with open(os.path.join(training_dir, "train_X.z"), 'rb') as f:
         train_x = joblib.load(f)
@@ -97,17 +98,11 @@ def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
     # make dataloaders
     train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
     valid_dataloader =torch.utils.data.DataLoader(valid_ds, batch_size=batch_size)
-    
-    batch_X, batch_Y = next(iter(train_dataloader))
-    print(f'X train batch has shape {batch_X.shape}')
-
-    batch_X, batch_Y = next(iter(valid_dataloader))
-    print(f'X valid batch has shape {batch_X.shape}')
 
     return train_dataloader, valid_dataloader
 
 # Provided training function
-def train(model, train_loader, epochs, criterion, optimizer, device):
+def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device):
     """
     This is the training method that is called by the PyTorch training script. The parameters
     passed are as follows:
@@ -119,6 +114,8 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
     device       - Where the model and data should be loaded (gpu or cpu).
     """
     
+    print('starting training.')
+
     # training loop is provided
     for epoch in range(1, epochs + 1):
         model.train() # Make sure that the model is in training mode.
@@ -126,7 +123,8 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
         epoch_loss = 0
         batch_loss = 0
 
-        for i, batch in tqdm(enumerate(train_loader)):
+        model.train()
+        for i, batch in enumerate(train_loader):
 
             # get data
             batch_x, batch_y = batch
@@ -153,9 +151,32 @@ def train(model, train_loader, epochs, criterion, optimizer, device):
                 writer.add_scalar('batch loss', batch_loss / 100, epoch * len(train_loader) + i)
                 batch_loss = 0
 
-        print("Epoch: {}, Loss: {}".format(epoch, epoch_loss / len(train_loader)))
-        writer.add_scalar('epoch loss', epoch_loss / len(train_loader), epoch)
+        # get validation
+        model.eval()
+        with torch.no_grad():
 
+            # get valid loss
+            epoch_valid_loss = 0
+
+            for batch in valid_loader:
+                
+                # get data
+                batch_x, batch_y = batch
+                batch_x = batch_x.to(device)
+                batch_y = batch_y.to(device)
+
+                # get predictions on validation data
+                y_pred = model(batch_x)
+
+                # get loss
+                loss = criterion(y_pred, batch_y)
+                epoch_valid_loss += loss.data.item()
+
+        print("Epoch: {}, Loss: {}, Valid Loss: {}".format(epoch, epoch_loss / len(train_loader), epoch_valid_loss / len(valid_loader)))
+        loss_dict = { 'epoch train loss': epoch_loss / len(train_loader),
+                                                'epoch valid loss': epoch_valid_loss / len(valid_loader)}
+        writer.add_scalars('Loss', loss_dict, epoch)
+    
 
 if __name__ == '__main__':
 
@@ -167,8 +188,9 @@ if __name__ == '__main__':
     DATA_DIR = BASE_DIR / 'data'
     MODEL_DIR = BASE_DIR / 'models'
     RUNS_DIR = BASE_DIR / 'runs'
+    LOGS_DIR = RUNS_DIR / 'logs/' / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     EXPORTS_DIR = DATA_DIR / 'exports'
     XRAY_LUNG_CLF_DIR = DATA_DIR / 'xray_lung_clf'
@@ -193,7 +215,7 @@ if __name__ == '__main__':
     # Training Parameters, given
     parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 10)')
-    parser.add_argument('--epochs', type=int, default=50, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
@@ -228,7 +250,7 @@ if __name__ == '__main__':
     # Use tensorboard
     print('creating tensorboard')
     global writer
-    writer = SummaryWriter(RUNS_DIR)
+    writer = SummaryWriter(LOGS_DIR)
 
     # Load the training data.
     train_loader = _get_train_data_loader(args.batch_size, args.data_dir)
@@ -250,7 +272,7 @@ if __name__ == '__main__':
     criterion = nn.BCEWithLogitsLoss()
 
     # Trains the model (given line of code, which calls the above training function)
-    #train(model, train_loader, args.epochs, criterion, optimizer, device)
+    train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device)
     writer.close()
 
     # Keep the keys of this dictionary as they are 
