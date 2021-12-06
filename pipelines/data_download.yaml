@@ -1,0 +1,39 @@
+context_parser: pypyr.parser.keyvaluepairs
+
+steps: 
+  - name: pypyr.steps.set
+    in: 
+      set: 
+        local_dest_dir: data/exports/xray_lung_clf
+        file_keys: [
+          'test_X.z',
+          'test_Y.z',
+          'train_X.z',
+          'train_Y.z'
+        ]
+  - name: pypyr.steps.py
+    in: 
+      py: |
+        import os
+        import boto3
+        import pathlib
+        import dotenv
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        # local dest dir defined above
+        DEST_DIR = pathlib.Path(local_dest_dir).resolve()
+        DEST_DIR.mkdir(exist_ok=True, parents=True)
+
+        resource = boto3.resource('s3')
+        bucket_name = os.environ.get('BUCKET_NAME')
+        bucket = resource.Bucket(bucket_name)
+
+        print(bucket)
+
+        for key in file_keys:
+          file_name = pathlib.Path(key).name
+          FILE_PATH = DEST_DIR / file_name
+          bucket.download_file(key, str(FILE_PATH))
+
+        print('finished datadownload')
