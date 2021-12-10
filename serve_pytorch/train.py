@@ -9,6 +9,7 @@ import pandas as pd
 # torch imports
 import torch
 import torch.optim as optim
+from torch.utils import tensorboard
 import torch.utils.data
 from torch import nn
 from torch.utils.data.dataset import random_split
@@ -102,7 +103,7 @@ def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
     return train_dataloader, valid_dataloader
 
 # Provided training function
-def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device):
+def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device, tensorboard_monitor: bool = True):
     """
     This is the training method that is called by the PyTorch training script. The parameters
     passed are as follows:
@@ -175,7 +176,9 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
         print("Epoch: {}, Loss: {}, Valid Loss: {}".format(epoch, epoch_loss / len(train_loader), epoch_valid_loss / len(valid_loader)))
         loss_dict = { 'epoch train loss': epoch_loss / len(train_loader),
                                                 'epoch valid loss': epoch_valid_loss / len(valid_loader)}
-        writer.add_scalars('Loss', loss_dict, epoch)
+        
+        if tensorboard_monitor:
+            writer.add_scalars('Loss', loss_dict, epoch)
     
 
 if __name__ == '__main__':
@@ -238,6 +241,9 @@ if __name__ == '__main__':
                         help='mlp_dim (default: 64)')
     parser.add_argument('--valid', type=float, default=0.1, metavar='N',
                         help='fraction of training for validation (default: 10%)')
+    parser.add_argument('--tensorboard', type=bool, default=True, metavar='N',
+                        help='Add tensorboard monitor (default: True)')
+    
     
     # args holds all passed-in arguments
     args = parser.parse_args()
@@ -248,9 +254,10 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
 
     # Use tensorboard
-    print('creating tensorboard')
-    global writer
-    writer = SummaryWriter(LOGS_DIR)
+    if args.tensorboard:
+        print('creating tensorboard')
+        global writer, tensorboard_on
+        writer = SummaryWriter(LOGS_DIR)
 
     # Load the training data.
     train_loader = _get_train_data_loader(args.batch_size, args.data_dir)
@@ -263,17 +270,20 @@ if __name__ == '__main__':
                               channels = args.channels, k = args.k, depth = args.depth, heads = args.heads, mlp_dim = args.mlp_dim)
 
     # Get a batch for tensorboard
-    batch_X, batch_Y = next(iter(train_loader))
-    print(f'X batch has shape {batch_X.shape}')
-    writer.add_graph(model, batch_X)
+    if args.tensorboard:
+        batch_X, batch_Y = next(iter(train_loader))
+        print(f'X batch has shape {batch_X.shape}')
+        writer.add_graph(model, batch_X)
 
     ## Define optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
     criterion = nn.BCEWithLogitsLoss()
 
     # Trains the model (given line of code, which calls the above training function)
-    train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device)
-    writer.close()
+    train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device, tensorboard_monitor = args.tensorboard)
+
+    if args.tensorboard:
+        writer.close()
 
     # Keep the keys of this dictionary as they are 
     MODEL_INFO_PATH = MODEL_DIR / 'model_info.pth'
