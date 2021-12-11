@@ -24,7 +24,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 
-def model_fn(model_dir):
+def model_fn(MODEL_DIR):
     """Load the PyTorch model from the `model_dir` directory."""
     print("Loading model.")
 
@@ -33,10 +33,8 @@ def model_fn(model_dir):
 
     # First, load the parameters used to create the model.
     model_info = {}
-    model_info_path = os.path.join(model_dir, 'model_info.pth')
     with open(MODEL_INFO_PATH, 'rb') as f:
         model_info = torch.load(f)
-
     print("model_info: {}".format(model_info))
 
     # Determine the device and construct the model.
@@ -103,7 +101,7 @@ def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
     return train_dataloader, valid_dataloader
 
 # Provided training function
-def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device, tensorboard_monitor: bool = True):
+def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device, tensorboard_monitor: bool = False):
     """
     This is the training method that is called by the PyTorch training script. The parameters
     passed are as follows:
@@ -148,9 +146,9 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
             epoch_loss += loss.data.item()
 
             # add batch loss to tensorboard
-            if i % 100 == 0:
+            if i % 100 == 0 and tensorboard_monitor:
                 writer.add_scalar('batch loss', batch_loss / 100, epoch * len(train_loader) + i)
-                batch_loss = 0
+            batch_loss = 0
 
         # get validation
         model.eval()
@@ -182,43 +180,35 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
     
 
 if __name__ == '__main__':
-
-    #BASE_DIR = pathlib.Path().resolve().parent
-    BASE_DIR = pathlib.Path().resolve()
-
-    print(BASE_DIR)
-
-    DATA_DIR = BASE_DIR / 'data'
-    MODEL_DIR = BASE_DIR / 'models'
-    RUNS_DIR = BASE_DIR / 'runs'
-    LOGS_DIR = RUNS_DIR / 'logs/' / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-    EXPORTS_DIR = DATA_DIR / 'exports'
-    XRAY_LUNG_CLF_DIR = DATA_DIR / 'xray_lung_clf'
-    EXPORTS_LUNGCLF_DIR = EXPORTS_DIR / 'xray_lung_clf'
     
-    # All of the model parameters and training parameters are sent as arguments
-    # when this script is executed, during a training job
+    # sagemaker or local
+    sagemaker_bool = True
+    
+    # retrieve base directory
+    BASE_DIR = pathlib.Path().resolve()
     
     # Here we set up an argument parser to easily access the parameters
     parser = argparse.ArgumentParser()
 
-    # SageMaker parameters, like the directories for training data and saving models; set automatically
-    # Do not need to change
-    #parser.add_argument('--output-data-dir', type=str, default=os.environ['SM_OUTPUT_DATA_DIR'])
-    #parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
-    #parser.add_argument('--data-dir', type=str, default=os.environ['SM_CHANNEL_TRAIN'])
+    # SageMaker parameters or local; set automatically
+    if sagemaker_bool:
+        parser.add_argument('--output-data-dir', type=str, default=os.environ['SM_OUTPUT_DATA_DIR'])
+        parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
+        parser.add_argument('--data-dir', type=str, default=os.environ['SM_CHANNEL_TRAINING'])
+    else:
+        DATA_DIR = BASE_DIR / 'data'
+        MODEL_DIR = BASE_DIR / 'models'
+        EXPORTS_DIR = DATA_DIR / 'exports'
+        XRAY_LUNG_CLF_DIR = DATA_DIR / 'xray_lung_clf'
+        EXPORTS_LUNGCLF_DIR = EXPORTS_DIR / 'xray_lung_clf'
+        parser.add_argument('--output-data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
+        parser.add_argument('--model-dir', type=str, default=MODEL_DIR)
+        parser.add_argument('--data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
 
-    parser.add_argument('--output-data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
-    parser.add_argument('--model-dir', type=str, default=MODEL_DIR)
-    parser.add_argument('--data-dir', type=str, default=EXPORTS_LUNGCLF_DIR)
-    
     # Training Parameters, given
     parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 10)')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--epochs', type=int, default=84, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
@@ -241,21 +231,26 @@ if __name__ == '__main__':
                         help='mlp_dim (default: 64)')
     parser.add_argument('--valid', type=float, default=0.1, metavar='N',
                         help='fraction of training for validation (default: 10%)')
-    parser.add_argument('--tensorboard', type=bool, default=True, metavar='N',
+    parser.add_argument('--tensorboard', type=bool, default=False, metavar='N',
                         help='Add tensorboard monitor (default: True)')
-    
     
     # args holds all passed-in arguments
     args = parser.parse_args()
-
+    
+    # save location as path object
+    MODEL_DIR = pathlib.Path(args.model_dir).resolve()
+    
+    # save device and make replicable
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device {}.".format(device))
-
     torch.manual_seed(args.seed)
 
     # Use tensorboard
     if args.tensorboard:
         print('creating tensorboard')
+        RUNS_DIR = BASE_DIR / 'runs'
+        LOGS_DIR = RUNS_DIR / 'logs/' / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
         global writer, tensorboard_on
         writer = SummaryWriter(LOGS_DIR)
 
@@ -264,10 +259,9 @@ if __name__ == '__main__':
     train_loader, valid_loader = _get_train_and_validation_loader(args.batch_size, args.data_dir, split = 0.1)
 
     # Build the model by passing in the input params
-    # To get params from the parser, call args.argument_name, ex. args.epochs or ards.hidden_dim
-    # Don't forget to move your model .to(device) to move to GPU , if appropriate
-    model = VisionTransformer(image_size = args.image_size, patch_size = args.patch_size, num_classes = args.num_classes, 
-                              channels = args.channels, k = args.k, depth = args.depth, heads = args.heads, mlp_dim = args.mlp_dim)
+    model = VisionTransformer(image_size = args.image_size, patch_size=args.patch_size,                                                           num_classes=args.num_classes, 
+                              channels = args.channels, k = args.k, depth = args.depth, heads = args.heads, 
+                              mlp_dim = args.mlp_dim).to(device)
 
     # Get a batch for tensorboard
     if args.tensorboard:
@@ -275,18 +269,21 @@ if __name__ == '__main__':
         print(f'X batch has shape {batch_X.shape}')
         writer.add_graph(model, batch_X)
 
-    ## Define optimizer and loss function for training
+    # Define optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
     criterion = nn.BCEWithLogitsLoss()
 
     # Trains the model (given line of code, which calls the above training function)
-    train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device, tensorboard_monitor = args.tensorboard)
+    train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device, 
+          tensorboard_monitor=args.tensorboard)
 
+    # close tensorboard
     if args.tensorboard:
         writer.close()
-
-    # Keep the keys of this dictionary as they are 
+        
+    # Save model specifications
     MODEL_INFO_PATH = MODEL_DIR / 'model_info.pth'
+        
     with open(MODEL_INFO_PATH, 'wb') as f:
         model_info = {
             'image_size': args.image_size,
@@ -300,10 +297,12 @@ if __name__ == '__main__':
         }
         torch.save(model_info, f)
     
-	# Save the model parameters
+    # Save the model parameters
     MODEL_PATH = MODEL_DIR / 'model.pth'
+    
     with open(MODEL_PATH, 'wb') as f:
         torch.save(model.cpu().state_dict(), f)
-
-    # Test model loading functiogn
+        
+    # Test model loading function
     model_fn(MODEL_DIR)
+    

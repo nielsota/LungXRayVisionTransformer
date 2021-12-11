@@ -7,11 +7,8 @@ torchvision
 tensorboard
 einops
 joblib
-pickle
 tqdm
 sklearn
 argparse
-os
 sagemaker
 datetime
-
