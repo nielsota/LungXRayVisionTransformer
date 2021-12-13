@@ -174,7 +174,7 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
         print("Epoch: {}, Loss: {}, Valid Loss: {}".format(epoch, epoch_loss / len(train_loader), epoch_valid_loss / len(valid_loader)))
         loss_dict = { 'epoch train loss': epoch_loss / len(train_loader),
                                                 'epoch valid loss': epoch_valid_loss / len(valid_loader)}
-        
+        print(y_pred)
         if tensorboard_monitor:
             writer.add_scalars('Loss', loss_dict, epoch)
     
@@ -182,7 +182,7 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
 if __name__ == '__main__':
     
     # sagemaker or local
-    sagemaker_bool = True
+    sagemaker_bool = False
     
     # retrieve base directory
     BASE_DIR = pathlib.Path().resolve()
@@ -231,7 +231,7 @@ if __name__ == '__main__':
                         help='mlp_dim (default: 64)')
     parser.add_argument('--valid', type=float, default=0.1, metavar='N',
                         help='fraction of training for validation (default: 10%)')
-    parser.add_argument('--tensorboard', type=bool, default=False, metavar='N',
+    parser.add_argument('--tensorboard', type=bool, default=True, metavar='N',
                         help='Add tensorboard monitor (default: True)')
     
     # args holds all passed-in arguments
