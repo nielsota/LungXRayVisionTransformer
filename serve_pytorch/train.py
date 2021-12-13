@@ -170,11 +170,14 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
                 # get loss
                 loss = criterion(y_pred, batch_y)
                 epoch_valid_loss += loss.data.item()
+        
+        print(y_pred)
+        print(y_pred.shape)
+        print(torch.nn.functional.sigmoid(y_pred))
 
         print("Epoch: {}, Loss: {}, Valid Loss: {}".format(epoch, epoch_loss / len(train_loader), epoch_valid_loss / len(valid_loader)))
         loss_dict = { 'epoch train loss': epoch_loss / len(train_loader),
                                                 'epoch valid loss': epoch_valid_loss / len(valid_loader)}
-        print(y_pred)
         if tensorboard_monitor:
             writer.add_scalars('Loss', loss_dict, epoch)
     
