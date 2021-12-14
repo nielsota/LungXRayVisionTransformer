@@ -100,6 +100,41 @@ def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
 
     return train_dataloader, valid_dataloader
 
+def _classification_metric(pred_labels, true_labels):
+    pred_labels = pred_labels.byte()
+    true_labels = true_labels.byte()
+
+    assert 1 >= pred_labels.all() >= 0
+    assert 1 >= true_labels.all() >= 0
+
+    # True Positive (TP): we predict a label of 1 (positive), and the true label is 1.
+    TP = torch.sum((pred_labels == 1) & ((true_labels == 1)))
+
+    # True Negative (TN): we predict a label of 0 (negative), and the true label is 0.
+    TN = torch.sum((pred_labels == 0) & (true_labels == 0))
+
+    # False Positive (FP): we predict a label of 1 (positive), but the true label is 0.
+    FP = torch.sum((pred_labels == 1) & (true_labels == 0))
+
+    # False Negative (FN): we predict a label of 0 (negative), but the true label is 1.
+    FN = torch.sum((pred_labels == 0) & (true_labels == 1))
+    return {'TP': TP, 'TN': TN, 'FP': FP, 'FN': FN}
+
+def _update_scores(score_dict, pred_logits, true_labels):
+    
+    # get predicted probabilities & labels from logits
+    pred_probs = torch.sigmoid(pred_logits)
+    pred_labels = (pred_probs>0.5).float()
+
+    # get new score dictionary
+    new_scores_dict = _classification_metric(pred_labels, true_labels)
+
+    # update score dictionary (key-order agnostic)
+    for k, v in score_dict.items():
+        score_dict[k] = v + new_scores_dict[k]
+
+    return score_dict
+
 # Provided training function
 def train(model, train_loader, valid_loader, epochs, criterion, optimizer, device, tensorboard_monitor: bool = False):
     """
@@ -121,6 +156,7 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
 
         epoch_loss = 0
         batch_loss = 0
+        epoch_train_score_dict = {'TP': 0, 'TN': 0, 'FP': 0, 'FN': 0}
 
         model.train()
         for i, batch in enumerate(train_loader):
@@ -135,6 +171,7 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
 
             # get predictions from model
             y_pred = model(batch_x)
+            epoch_train_score_dict = _update_scores(epoch_train_score_dict, y_pred, batch_y)
             
             # perform backprop
             loss = criterion(y_pred, batch_y)
@@ -156,6 +193,7 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
 
             # get valid loss
             epoch_valid_loss = 0
+            epoch_valid_score_dict = {'TP': 0, 'TN': 0, 'FP': 0, 'FN': 0}
 
             for batch in valid_loader:
                 
@@ -166,20 +204,26 @@ def train(model, train_loader, valid_loader, epochs, criterion, optimizer, devic
 
                 # get predictions on validation data
                 y_pred = model(batch_x)
+                epoch_valid_score_dict = _update_scores(epoch_valid_score_dict, y_pred, batch_y)
 
                 # get loss
                 loss = criterion(y_pred, batch_y)
                 epoch_valid_loss += loss.data.item()
-        
-        print(y_pred)
-        print(y_pred.shape)
-        print(torch.nn.functional.sigmoid(y_pred))
 
         print("Epoch: {}, Loss: {}, Valid Loss: {}".format(epoch, epoch_loss / len(train_loader), epoch_valid_loss / len(valid_loader)))
         loss_dict = { 'epoch train loss': epoch_loss / len(train_loader),
                                                 'epoch valid loss': epoch_valid_loss / len(valid_loader)}
+        
+        epoch_train_score_dict = {k:v for (k,v) in epoch_train_score_dict.items()}
+        epoch_valid_score_dict = {k:v for (k,v) in epoch_valid_score_dict.items()}
+
+        print(epoch_train_score_dict)
+        print(epoch_valid_score_dict)
+        
         if tensorboard_monitor:
             writer.add_scalars('Loss', loss_dict, epoch)
+            writer.add_scalars('Valid Scores', epoch_valid_score_dict, epoch)
+            writer.add_scalars('Train Scores', epoch_train_score_dict, epoch)
     
 
 if __name__ == '__main__':

@@ -104,7 +104,7 @@ class rearrange_layer(nn.Module):
 
     def forward(self, img, p):
         return rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=p, p2=p)
-
+    
 
 class VisionTransformer(nn.Module):
     """
