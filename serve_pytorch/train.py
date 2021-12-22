@@ -100,6 +100,15 @@ def _get_train_and_validation_loader(batch_size, training_dir, split=0.1):
 
     return train_dataloader, valid_dataloader
 
+def _get_weights(training_dir):
+
+    WEIGTHS_DIR = training_dir / 'class_weights.z'
+
+    with open(WEIGTHS_DIR, 'rb') as f:
+        weights = torch.load(f)
+
+    return weights
+
 def _classification_metric(pred_labels, true_labels):
     pred_labels = pred_labels.byte()
     true_labels = true_labels.byte()
@@ -318,7 +327,8 @@ if __name__ == '__main__':
 
     # Define optimizer and loss function for training
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, betas=(0.5, 0.999))
-    criterion = nn.BCEWithLogitsLoss()
+    pos_weight = _get_weights(args.data_dir)
+    criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight)
 
     # Trains the model (given line of code, which calls the above training function)
     train(model, train_loader, valid_loader, args.epochs, criterion, optimizer, device, 
